@@ -9,6 +9,67 @@
   const triggered = { am: false, pm: false };
   let lastDate = '';
 
+  // ── STORAGE KEY ──
+  const STORE_KEY = 'qthai_rng_v1';
+
+  // Save today's numbers + history to localStorage
+  function saveState(which, num) {
+    const now = getThai();
+    const dateStr = now.toDateString();
+    let state = loadState();
+    if (state.date !== dateStr) {
+      // New day — wipe old data
+      state = { date: dateStr, am: null, pm: null, history: [] };
+    }
+    state[which] = num;
+    // Save to history
+    state.history = state.history || [];
+    state.history.unshift({
+      n: num,
+      session: which.toUpperCase(),
+      time: now.toLocaleTimeString('th-TH')
+    });
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return { date: '', am: null, pm: null, history: [] };
+      return JSON.parse(raw);
+    } catch (e) {
+      return { date: '', am: null, pm: null, history: [] };
+    }
+  }
+
+  // On page load — restore today's numbers if they exist
+  function restoreState() {
+    const now = getThai();
+    const dateStr = now.toDateString();
+    const state = loadState();
+    if (state.date !== dateStr) return; // different day, nothing to restore
+
+    if (state.am !== null) {
+      const el = document.getElementById('num-am');
+      if (el) el.textContent = fmt(state.am);
+      document.getElementById('tag-am').textContent = 'รอบเช้า · Morning Released';
+      document.getElementById('card-am')?.classList.add('lit');
+      triggered.am = true;
+    }
+    if (state.pm !== null) {
+      const el = document.getElementById('num-pm');
+      if (el) el.textContent = fmt(state.pm);
+      document.getElementById('tag-pm').textContent = 'รอบบ่าย · Afternoon Released';
+      document.getElementById('card-pm')?.classList.add('lit');
+      triggered.pm = true;
+    }
+    // Restore history chips
+    if (state.history && state.history.length) {
+      state.history.forEach(h => history.push(h));
+      updateHistory();
+    }
+  }
+
   // ── TF.js INIT ──
   if (typeof tf !== 'undefined') {
     tf.ready().then(() => {
@@ -166,6 +227,8 @@
       label: label || which.toUpperCase(),
       time: now.toLocaleTimeString('th-TH')
     });
+    // ── PERSIST so refreshing the page keeps the number all day ──
+    saveState(which, n);
     spinReveal('num-' + which, n, () => {
       const tagEl = document.getElementById('tag-' + which);
       if (tagEl) tagEl.textContent = label ? label + ' · Released' : 'ผลควอนตัม · Released';
@@ -283,12 +346,14 @@
       }
     }
 
-    // Reset triggers at midnight
+    // Reset at midnight — clear display + localStorage
     const dateStr = now.toDateString();
     if (dateStr !== lastDate) {
       lastDate = dateStr;
       triggered.am = false;
       triggered.pm = false;
+      history.length = 0;
+      try { localStorage.removeItem(STORE_KEY); } catch(e) {}
       const amEl = document.getElementById('num-am');
       const pmEl = document.getElementById('num-pm');
       if (amEl) amEl.textContent = '--';
@@ -297,6 +362,7 @@
       document.getElementById('card-pm')?.classList.remove('lit');
       document.getElementById('tag-am').textContent = 'รอการสุ่ม · Waiting';
       document.getElementById('tag-pm').textContent = 'รอการสุ่ม · Waiting';
+      updateHistory();
     }
 
     const hh = Math.floor(nextSec / 3600);
@@ -371,6 +437,9 @@
       }
     });
   }
+
+  // ── STARTUP — restore today's numbers if page was refreshed ──
+  restoreState();
 
   // ── TICK LOOP ──
   updateCountdown();
